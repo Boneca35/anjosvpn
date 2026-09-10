@@ -1,1 +1,326 @@
-[conteúdo integral do arquivo anexado]
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal de Interação DeFi</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0b1020; color: #e6e9f0; padding: 20px; }
+    .wrap { max-width: 680px; margin: auto; }
+    .card { background: #151b2e; border: 1px solid #2a3550; border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    h2 { font-size: 18px; margin-bottom: 12px; color: #9db2ff; }
+    .sub { color: #8a94b0; font-size: 13px; margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: #aab4d0; }
+    select, input { width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid #2f3b5c; background: #0d1226; color: #e6e9f0; font-size: 14px; }
+    select:focus, input:focus { outline: 2px solid #5b7cfa; }
+    button { width: 100%; padding: 13px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: linear-gradient(90deg, #5b7cfa, #8a4ff7); color: #fff; margin-top: 18px; }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary { background: #2a3250; color: #cfd6f0; margin-top: 10px; }
+    .btn-secondary:hover { background: #3a4570; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row > * { flex: 1; }
+    .status { background: #0d1226; border: 1px solid #2f3b5c; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 13px; word-break: break-all; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .info { color: #93c5fd; }
+    .balance { font-size: 24px; font-weight: 700; margin: 10px 0 2px; }
+    .fiat { color: #8a94b0; font-size: 13px; }
+    .price-line { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #2a3550; font-size: 13px; }
+    .price-line span:last-child { color: #9db2ff; font-weight: 600; }
+    .hidden { display: none; }
+    .notice { background: #1a2a1a; border: 1px solid #2e5c2e; color: #a7f3a7; border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-top: 12px; }
+    table.prices { width: 100%; border-collapse: collapse; }
+    table.prices td { padding: 6px 4px; border-bottom: 1px dashed #2a3550; font-size: 13px; }
+    table.prices td:last-child { color: #9db2ff; font-weight: 600; text-align: right; }
+    .net-select { display: flex; gap: 10px; align-items: end; }
+    .net-select > * { flex: 1; }
+  </style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="card">
+    <h1>Portal de Interação DeFi</h1>
+    <div class="sub">Carteira Web3 completa &bull; Multi-Network</div>
+
+    <div class="net-select">
+      <div>
+        <label for="networkSelect"><strong>Rede Blockchain:</strong></label>
+        <select id="networkSelect"></select>
+      </div>
+      <button id="btnConnect" class="btn-primary" onclick="connectWallet()" style="margin-top:14px;">Conectar Carteira</button>
+    </div>
+    <div id="walletAddress" class="status">Nenhuma carteira conectada.</div>
+  </div>
+
+  <div class="card">
+    <h2>Tokens de Moeda Real (DeFi)</h2>
+    <div id="priceList"></div>
+  </div>
+
+  <div class="card">
+    <h2>Saldo do Token</h2>
+    <div class="row">
+      <select id="tokenSelect"></select>
+    </div>
+    <div id="tokenBalance" class="status">Conecte a carteira para ver saldos.</div>
+  </div>
+
+  <div class="card">
+    <h2>Operações do Wallet / Token</h2>
+
+    <label for="actionSelect"><strong>Ação:</strong></label>
+    <select id="actionSelect"></select>
+
+    <div id="fieldSpender" class="hidden">
+      <label for="spender">Endereço do Contrato Aprovado (Spender):</label>
+      <input type="text" id="spender" placeholder="0x...">
+    </div>
+
+    <div id="fieldRecipient" class="hidden">
+      <label for="recipient">Endereço do Destinatário:</label>
+      <input type="text" id="recipient" placeholder="0x...">
+    </div>
+
+    <label for="amount"><strong>Quantidade:</strong></label>
+    <input type="number" id="amount" step="any" min="0" placeholder="Ex: 1.5">
+
+    <div class="notice" id="txNotice" style="display:none;"></div>
+
+    <button onclick="executeAction()" class="btn-primary">Executar Transação na Blockchain</button>
+    <button onclick="loadBalances()" class="btn-secondary">Atualizar Saldos e Preços</button>
+  </div>
+</div>
+
+<script>
+  let provider, signer, userAddress, network;
+  const eth = ethers.utils;
+
+  const NETWORKS = {
+    1: {
+      name: "Ethereum Mainnet", chainId: 1, nativeSymbol: "ETH", nativeDecimals: 18,
+      rpc: { chainId: "0x1" }, coingeckoRPC: { currency: "ethereum" },
+      tokens: [
+        { symbol: "ETH", name: "Ethereum (Moeda Nativa)", decimals: 18, native: true, coingecko: "ethereum" },
+        { symbol: "stETH", name: "Lido Staked Ether", decimals: 18, address: "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84", coingecko: "lido-staked-ether" },
+        { symbol: "USDT", name: "Tether (6)", decimals: 6, address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", coingecko: "tether" },
+        { symbol: "USDC", name: "USD Coin (6)", decimals: 6, address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", coingecko: "usd-coin" },
+        { symbol: "DAI", name: "Dai (18)", decimals: 18, address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", coingecko: "dai" },
+        { symbol: "WETH", name: "Wrapped Ether (18)", decimals: 18, address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", coingecko: "weth" },
+        { symbol: "WBTC", name: "Wrapped Bitcoin (8)", decimals: 8, address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", coingecko: "wrapped-bitcoin" },
+        { symbol: "LINK", name: "Chainlink (18)", decimals: 18, address: "0x514910771AF9Ca656af840dff83E8264EcF986CA", coingecko: "chainlink" },
+        { symbol: "UNI", name: "Uniswap (18)", decimals: 18, address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", coingecko: "uniswap" },
+        { symbol: "AAVE", name: "Aave (18)", decimals: 18, address: "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9", coingecko: "aave" },
+        { symbol: "SHIB", name: "Shiba Inu (18)", decimals: 18, address: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", coingecko: "shiba-inu" }
+      ]
+    },
+    56: {
+      name: "BNB Smart Chain", chainId: 56, nativeSymbol: "BNB", nativeDecimals: 18,
+      rpc: { chainId: "0x38" }, coingeckoRPC: { currency: "binancecoin" },
+      tokens: [
+        { symbol: "BNB", name: "BNB (Moeda Nativa)", decimals: 18, native: true, coingecko: "binancecoin" },
+        { symbol: "USDT", name: "Tether (18/BEP20)", decimals: 18, address: "0x55d398326f99059fF775485246999027B3197955", coingecko: "tether" },
+        { symbol: "USDC", name: "USD Coin (18/BEP20)", decimals: 18, address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", coingecko: "usd-coin" },
+        { symbol: "BUSD", name: "Binance USD (18)", decimals: 18, address: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", coingecko: "binance-usd" },
+        { symbol: "WBNB", name: "Wrapped BNB (18)", decimals: 18, address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", coingecko: "wbnb" },
+        { symbol: "CAKE", name: "PancakeSwap (18)", decimals: 18, address: "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82", coingecko: "pancakeswap-token" },
+        { symbol: "DOT", name: "Polkadot (18/BEP20)", decimals: 18, address: "0x7083609fCE4d1d8Dc0C979AAb8c869Ea2C873402", coingecko: "polkadot" }
+      ]
+    },
+    137: {
+      name: "Polygon PoS", chainId: 137, nativeSymbol: "POL", nativeDecimals: 18,
+      rpc: { chainId: "0x89" }, coingeckoRPC: { currency: "matic-network" },
+      tokens: [
+        { symbol: "POL", name: "Polygon (Moeda Nativa)", decimals: 18, native: true, coingecko: "matic-network" },
+        { symbol: "USDT", name: "Tether (6)", decimals: 6, address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", coingecko: "tether" },
+        { symbol: "USDC", name: "USD Coin Nativo (6)", decimals: 6, address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", coingecko: "usd-coin" },
+        { symbol: "USDCe", name: "USD Coin Bridgeado (6)", decimals: 6, address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", coingecko: "usd-coin" },
+        { symbol: "DAI", name: "Dai (18)", decimals: 18, address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", coingecko: "dai" },
+        { symbol: "WETH", name: "Wrapped Ether (18)", decimals: 18, address: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", coingecko: "weth" },
+        { symbol: "WMATIC", name: "Wrapped MATIC/POL (18)", decimals: 18, address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", coingecko: "matic-network" },
+        { symbol: "LINK", name: "Chainlink (18)", decimals: 18, address: "0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39", coingecko: "chainlink" }
+      ]
+    },
+    42161: {
+      name: "Arbitrum One", chainId: 42161, nativeSymbol: "ETH", nativeDecimals: 18,
+      rpc: { chainId: "0xa4b1" }, coingeckoRPC: { currency: "ethereum" },
+      tokens: [
+        { symbol: "ETH", name: "Ethereum (Moeda Nativa)", decimals: 18, native: true, coingecko: "ethereum" },
+        { symbol: "USDT", name: "Tether (6)", decimals: 6, address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", coingecko: "tether" },
+        { symbol: "USDC", name: "USD Coin Nativo (6)", decimals: 6, address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", coingecko: "usd-coin" },
+        { symbol: "DAI", name: "Dai (18)", decimals: 18, address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", coingecko: "dai" },
+        { symbol: "WETH", name: "Wrapped Ether (18)", decimals: 18, address: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", coingecko: "weth" },
+        { symbol: "ARB", name: "Arbitrum (18)", decimals: 18, address: "0x912CE59144191C1204E64559FE8253a0e49E6548", coingecko: "arbitrum" },
+        { symbol: "LINK", name: "Chainlink (18)", decimals: 18, address: "0xf97f4df7519c2212A9A43E8cB30c1e2D19c0bB72", coingecko: "chainlink" }
+      ]
+    }
+  };
+
+  const ERC20_ABI = [
+    "function name() view returns (string)", "function symbol() view returns (string)",
+    "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)",
+    "function transfer(address to, uint256 amount) returns (bool)",
+    "function approve(address spender, uint256 amount) returns (bool)",
+    "function allowance(address owner, address spender) view returns (uint256)"
+  ];
+  const WRAP_ABI = ["function deposit() public payable", "function withdraw(uint256 wad) public"];
+
+  function validateNetworks() {
+    const report = [];
+    for (const id of Object.keys(NETWORKS)) {
+      const net = NETWORKS[id], validTokens = [];
+      for (const t of net.tokens) {
+        if (t.native) { validTokens.push(t); continue; }
+        try { t.address = eth.getAddress(t.address); validTokens.push(t); }
+        catch (e) { report.push("Rede " + id + ": '" + t.symbol + "' endereço inválido; token removido."); }
+      }
+      net.tokens = validTokens;
+    }
+    if (report.length) console.warn(report.join("\n"));
+    return report;
+  }
+
+  function selectedChainId() { return parseInt(document.getElementById("networkSelect").value); }
+  function getNetworkConfig() { return NETWORKS[selectedChainId()]; }
+  function getTokens() { return getNetworkConfig().tokens; }
+  function getToken() { return getTokens()[parseInt(document.getElementById("tokenSelect").value)]; }
+  function tokenContract(tok) {
+    const wrapable = tok.symbol.match(/W(ETH|BNB|MATIC)/);
+    return new ethers.Contract(eth.getAddress(tok.address), wrapable ? ERC20_ABI.concat(WRAP_ABI) : ERC20_ABI, signer);
+  }
+
+  function buildNetworkSelect() {
+    const sel = document.getElementById("networkSelect");
+    sel.innerHTML = Object.keys(NETWORKS).map(id => '<option value="' + id + '">' + NETWORKS[id].name + ' (ID ' + id + ')</option>').join("");
+    sel.onchange = () => { buildTokenSelect(); buildActionSelect(); loadPrices(); };
+  }
+
+  async function connectWallet() {
+    if (!window.ethereum) return alert("Nenhuma carteira Web3 encontrada. Instale a MetaMask.");
+    try {
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      signer = provider.getSigner(); userAddress = await signer.getAddress(); network = await provider.getNetwork();
+      const cfg = getNetworkConfig();
+      if (String(network.chainId) !== String(cfg.chainId)) {
+        try {
+          await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: cfg.rpc.chainId }] });
+          provider = new ethers.providers.Web3Provider(window.ethereum); signer = provider.getSigner();
+          userAddress = await signer.getAddress(); network = await provider.getNetwork();
+        } catch (err) { return alert("Falha ao trocar de rede: " + (err.message || err)); }
+      }
+      document.getElementById("walletAddress").innerHTML = '<div><strong class="success">Conectado</strong></div><div>Endereço: <span class="info">' + userAddress + '</span></div><div>Rede: <span class="info">' + (network.name || cfg.name) + ' (ID: ' + network.chainId + ')</span></div>';
+      buildTokenSelect(); buildActionSelect(); Promise.all([loadBalances(), loadPrices()]);
+    } catch (err) { alert("Erro ao conectar carteira: " + err.message); }
+  }
+
+  function buildTokenSelect() {
+    const sel = document.getElementById("tokenSelect");
+    sel.innerHTML = getTokens().map((t, i) => '<option value="' + i + '">' + t.symbol + ' — ' + t.name + '</option>').join("");
+    sel.onchange = () => { showBalance(); buildActionSelect(); };
+    showBalance();
+  }
+
+  function buildActionSelect() {
+    const sel = document.getElementById("actionSelect"), tok = getToken();
+    const actions = [
+      { v: "transfer", label: "Transferir Token (Enviar)" }, { v: "approve", label: "Aprovar Contrato (Allowance)" },
+      { v: "approveAll", label: "Aprovar Limite Máximo (Approve Max)" },
+      { v: "sendNative", label: "Enviar Moeda Nativa (" + getNetworkConfig().nativeSymbol + ")" }
+    ];
+    if (tok.symbol.match(/W(ETH|BNB|MATIC)/)) {
+      actions.push({ v: "deposit", label: tok.symbol + ": Depositar Nativa (Wrap)" });
+      actions.push({ v: "withdraw", label: tok.symbol + ": Sacar Nativa (Unwrap)" });
+    }
+    sel.innerHTML = actions.map(a => '<option value="' + a.v + '">' + a.label + '</option>').join("");
+    sel.onchange = toggleActionFields; toggleActionFields();
+  }
+
+  function toggleActionFields() {
+    const action = document.getElementById("actionSelect").value;
+    document.getElementById("fieldSpender").classList.toggle("hidden", action !== "approve" && action !== "approveAll");
+    document.getElementById("fieldRecipient").classList.toggle("hidden", action !== "transfer" && action !== "sendNative");
+  }
+
+  function validateAddress(input) {
+    const el = document.getElementById(input); if (!el.value.trim()) return alert("Preencha o endereço.");
+    try { el.value = eth.getAddress(el.value.trim()); return el.value; }
+    catch (e) { alert("Endereço inválido. Verifique e corrija."); }
+  }
+
+  async function loadBalances() {
+    if (!signer) return alert("Conecte a carteira primeiro.");
+    document.getElementById("tokenBalance").innerHTML = "Carregando saldos...";
+    try {
+      const rows = [];
+      for (const t of getTokens()) {
+        const bal = t.native ? await provider.getBalance(userAddress) : await new ethers.Contract(eth.getAddress(t.address), ERC20_ABI, provider).balanceOf(userAddress);
+        rows.push({ t, bal });
+      }
+      document.getElementById("tokenBalance").innerHTML = rows.map(r => '<div class="price-line"><span>' + r.t.symbol + '</span><span>' + eth.formatUnits(r.bal, r.t.decimals) + '</span></div>').join("");
+    } catch (err) { document.getElementById("tokenBalance").innerHTML = '<span class="error">Erro: ' + (err.reason || err.message) + '</span>'; }
+  }
+
+  async function showBalance() {
+    if (!signer) return;
+    const tok = getToken();
+    try {
+      const bal = tok.native ? await provider.getBalance(userAddress) : await new ethers.Contract(eth.getAddress(tok.address), ERC20_ABI, provider).balanceOf(userAddress);
+      document.getElementById("tokenBalance").innerHTML = '<div class="balance">' + Number(eth.formatUnits(bal, tok.decimals)).toLocaleString("pt-BR", { maximumFractionDigits: 6 }) + ' ' + tok.symbol + '</div><div class="fiat">Preço pela CoinGecko</div>';
+    } catch (err) { document.getElementById("tokenBalance").innerHTML = '<span class="error">Erro: ' + (err.reason || err.message) + '</span>'; }
+  }
+
+  async function loadPrices() {
+    const uniq = Array.from(new Set(getTokens().filter(t => t.coingecko).map(t => t.coingecko)));
+    try {
+      const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=" + uniq.join(",") + "&vs_currencies=usd,brl&precision=6");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      document.getElementById("priceList").innerHTML = getTokens().filter(t => t.coingecko && data[t.coingecko]).map(t => {
+        const p = data[t.coingecko];
+        return '<div class="price-line"><span>' + t.symbol + '</span><span>US$ ' + Number(p.usd).toLocaleString("en-US", { maximumFractionDigits: 6 }) + ' &bull; R$ ' + Number(p.brl).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + '</span></div>';
+      }).join("");
+    } catch (err) { document.getElementById("priceList").innerHTML = '<span class="error">Falha ao buscar preços.</span>'; }
+  }
+
+  async function executeAction() {
+    if (!signer) return alert("Conecte sua carteira primeiro.");
+    const tok = getToken(), cfg = getNetworkConfig(), action = document.getElementById("actionSelect").value;
+    const rawAmount = document.getElementById("amount").value;
+    if (!rawAmount || Number(rawAmount) <= 0) return alert("Insira uma quantidade válida.");
+    if (String(network.chainId) !== String(cfg.chainId)) return alert("Troque para a rede selecionada antes de executar.");
+    const notice = document.getElementById("txNotice");
+    try {
+      notice.style.display = "block"; notice.className = "notice"; notice.textContent = "Aguardando confirmação na carteira...";
+      let tx;
+      if (action === "sendNative") {
+        const to = validateAddress("recipient"); if (!to) return;
+        tx = await signer.sendTransaction({ to, value: eth.parseUnits(rawAmount, cfg.nativeDecimals) });
+      } else if (action === "deposit") {
+        tx = await tokenContract(tok).deposit({ value: eth.parseUnits(rawAmount, 18) });
+      } else if (action === "withdraw") {
+        tx = await tokenContract(tok).withdraw(eth.parseUnits(rawAmount, tok.decimals));
+      } else if (action === "approve" || action === "approveAll") {
+        const spender = validateAddress("spender"); if (!spender) return;
+        tx = await tokenContract(tok).approve(spender, action === "approveAll" ? ethers.constants.MaxUint256 : eth.parseUnits(rawAmount, tok.decimals));
+      } else {
+        const to = validateAddress("recipient"); if (!to) return;
+        tx = await tokenContract(tok).transfer(to, eth.parseUnits(rawAmount, tok.decimals));
+      }
+      notice.className = "notice success"; notice.textContent = "Confirmando... Hash: " + tx.hash;
+      const receipt = await tx.wait(); notice.textContent = "Confirmada no bloco " + receipt.blockNumber + ". Hash: " + tx.hash;
+      loadBalances();
+    } catch (error) {
+      notice.style.display = "block"; notice.className = "notice error";
+      notice.textContent = "Falha: " + (error.reason || (error.error && error.error.message) || error.message);
+    }
+  }
+
+  validateNetworks(); buildNetworkSelect(); buildTokenSelect(); buildActionSelect(); loadPrices();
+</script>
+</body>
+</html>
